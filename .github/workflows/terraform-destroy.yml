@@ -1,0 +1,102 @@
+name: Terraform Destroy Infrastructure with Terraform Cloud
+
+on:
+  push:
+    paths:
+      - '.trigger-destroy'
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.5.7'
+  WORKING_DIR: './terraform'
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Warning
+        run: |
+          echo "⚠️  WARNING: This will destroy ALL resources managed by Terraform!"
+          echo "📋 Proceeding with destroy in 5 seconds..."
+          sleep 5
+      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          cli_config_credentials_token: ${{ secrets.TF_CLOUD_TOKEN }}
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Set Azure Environment Variables
+        run: |
+          echo "ARM_CLIENT_ID=${{ secrets.ARM_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=${{ secrets.ARM_CLIENT_SECRET }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=${{ secrets.ARM_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ secrets.ARM_TENANT_ID }}" >> $GITHUB_ENV
+      
+      - name: Terraform Init
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          terraform init
+        env:
+          TF_INPUT: false
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      
+      - name: Show Current State
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          echo "📋 Resources that will be destroyed:"
+          terraform state list || echo "No resources in state"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      
+      - name: Terraform Plan Destroy
+        id: plan_destroy
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          terraform plan -destroy -input=false -no-color
+        continue-on-error: false
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      
+      - name: Terraform Destroy
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          echo "🗑️  Starting destruction of all resources..."
+          terraform apply -destroy -auto-approve -input=false
+          echo "✅ All resources have been destroyed"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      
+      - name: Verify Destruction
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          echo "📋 Remaining resources (should be empty):"
+          terraform state list || echo "✅ State is empty - all resources destroyed"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
