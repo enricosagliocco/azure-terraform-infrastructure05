@@ -1,20 +1,31 @@
+variable "location" {
+  description = "The Azure region where to create the resources."
+  type        = string
+}
+
 variable "resource_group_name" {
-  description = "Name of the existing resource group."
+  description = "Name for the new resource group."
   type        = string
 }
 
 variable "vnet_name" {
-  description = "Name of the existing virtual network."
+  description = "Name for the new virtual network."
   type        = string
 }
 
+variable "vnet_address_space" {
+  description = "Address space for the new virtual network."
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
 variable "nsg_name" {
-  description = "Name of the existing network security group."
+  description = "Name for the new network security group."
   type        = string
 }
 
 variable "route_table_name" {
-  description = "Name of the existing route table."
+  description = "Name for the new route table."
   type        = string
 }
 
@@ -76,3 +87,4 @@ variable "storage_account_name" {
   description = "Name of the storage account."
   type        = string
 }
+

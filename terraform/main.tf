@@ -24,25 +24,12 @@ provider "azurerm" {
 }
 
 ##############################################################################
-# Data Sources - Existing Resources
+# Resource Group
 ##############################################################################
-data "azurerm_resource_group" "existing_rg" {
-    name = var.resource_group_name
-}
-
-data "azurerm_virtual_network" "existing_vnet"{
-    name = var.vnet_name
-    resource_group_name = data.azurerm_resource_group.existing_rg.name
-}
-
-data "azurerm_network_security_group" "existing_nsg" {
-    name = var.nsg_name
-    resource_group_name = data.azurerm_resource_group.existing_rg.name
-}
-
-data "azurerm_route_table" "existing_rt" {
-    name = var.route_table_name
-    resource_group_name = data.azurerm_resource_group.existing_rg.name
+resource "azurerm_resource_group" "main" {
+  name     = var.resource_group_name
+  location = var.location
+  tags     = var.tags
 }
 
 ##############################################################################
@@ -51,8 +38,8 @@ data "azurerm_route_table" "existing_rt" {
 
 resource "azurerm_kubernetes_cluster" "aks" {
     name                = var.aks_cluster_name
-    location            = data.azurerm_resource_group.existing_rg.location
-    resource_group_name = data.azurerm_resource_group.existing_rg.name
+    location            = azurerm_resource_group.main.location
+    resource_group_name = azurerm_resource_group.main.name
     dns_prefix          = var.aks_dns_prefix
 
     private_cluster_enabled = true
@@ -100,8 +87,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
 ##############################################################################
 resource "azurerm_storage_account" "storage" {
   name                     = var.storage_account_name
-  resource_group_name      = data.azurerm_resource_group.existing_rg.name
-  location                 = data.azurerm_resource_group.existing_rg.location
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
   public_network_access_enabled = false
@@ -114,8 +101,8 @@ resource "azurerm_storage_account" "storage" {
 ##############################################################################
 resource "azurerm_private_endpoint" "storage_pe" {
   name                = "${var.storage_account_name}-pe"
-  location            = data.azurerm_resource_group.existing_rg.location
-  resource_group_name = data.azurerm_resource_group.existing_rg.name
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
   subnet_id           = azurerm_subnet.private_endpoints_subnet.id
 
   private_service_connection {
