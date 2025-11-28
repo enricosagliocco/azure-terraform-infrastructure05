@@ -2,27 +2,7 @@
 
 Questo progetto Terraform implementa un'architettura Azure sicura che include un cluster Azure Kubernetes Service (AKS) completamente privato, un Azure Container Registry (ACR) privato e uno Storage Account privato. Tutte le comunicazioni tra i servizi avvengono sulla rete virtuale di Azure, senza esposizione a Internet.
 
-## Architettura
-
-L'infrastruttura creata da questa configurazione è composta dai seguenti elementi:
-
-- **Resource Group**: Un contenitore logico per tutte le risorse Azure.
-- **Virtual Network (VNet)**: Una rete virtuale isolata in cui risiedono tutte le risorse.
-- **Subnet**:
-  - **Subnet AKS**: Dedicata ai nodi del cluster Kubernetes.
-  - **Subnet Private Endpoints**: Dedicata a tutti i private endpoint per l'accesso privato ai servizi PaaS.
-- **Network Security Group (NSG)** e **Route Table**: Applicate alla subnet di AKS per controllare il traffico.
-- **Cluster AKS Privato**: Il piano di controllo (API server) non è esposto pubblicamente. Le interazioni con il cluster devono avvenire da una macchina (es. una bastion host) all'interno della stessa VNet.
-- **Azure Storage Account**: Uno storage account per dati (blob, file, etc.) con accesso di rete pubblico disabilitato.
-- **Azure Container Registry (ACR)**: Un registry per le immagini Docker con accesso di rete pubblico disabilitato.
-- **Private Endpoints**:
-  - Uno per lo Storage Account, che gli assegna un IP privato nella subnet dei PE.
-  - Uno per l'ACR, che gli assegna un IP privato nella subnet dei PE.
-- **Zone DNS Private**:
-  - `privatelink.azurecr.io`: Per risolvere il nome dell'ACR nel suo IP privato.
-  - Una per lo storage (non esplicitamente creata qui ma gestita da Azure quando si crea il PE per lo storage).
-
-### Diagramma dell'Architettura (Mermaid)
+## Diagramma dell'Architettura (Mermaid)
 
 ```mermaid
 graph TD
@@ -55,6 +35,52 @@ graph TD
     style ACR fill:#f6a821,stroke:#fff,stroke-width:2px,color:#fff
     style Storage fill:#f6a821,stroke:#fff,stroke-width:2px,color:#fff
 ```
+
+## Architettura
+
+L'infrastruttura creata da questa configurazione è composta dai seguenti elementi:
+
+- **Resource Group**: Un contenitore logico per tutte le risorse Azure.
+- **Virtual Network (VNet)**: Una rete virtuale isolata in cui risiedono tutte le risorse.
+- **Subnet**:
+  - **Subnet AKS**: Dedicata ai nodi del cluster Kubernetes.
+  - **Subnet Private Endpoints**: Dedicata a tutti i private endpoint per l'accesso privato ai servizi PaaS.
+- **Network Security Group (NSG)** e **Route Table**: Applicate alla subnet di AKS per controllare il traffico.
+- **Cluster AKS Privato**: Il piano di controllo (API server) non è esposto pubblicamente. Le interazioni con il cluster devono avvenire da una macchina (es. una bastion host) all'interno della stessa VNet.
+- **Azure Storage Account**: Uno storage account per dati (blob, file, etc.) con accesso di rete pubblico disabilitato.
+- **Azure Container Registry (ACR)**: Un registry per le immagini Docker con accesso di rete pubblico disabilitato.
+- **Private Endpoints**:
+  - Uno per lo Storage Account, che gli assegna un IP privato nella subnet dei PE.
+  - Uno per l'ACR, che gli assegna un IP privato nella subnet dei PE.
+- **Zone DNS Private**:
+  - `privatelink.azurecr.io`: Per risolvere il nome dell'ACR nel suo IP privato.
+  - Una per lo storage (non esplicitamente creata qui ma gestita da Azure quando si crea il PE per lo storage).
+
+## Load Balancer Interno (Privato)
+
+Dato che il cluster è configurato come privato (`private_cluster_enabled = true`) e utilizza lo SKU `standard` per il load balancer (`load_balancer_sku = "standard"`), qualsiasi servizio Kubernetes di tipo `LoadBalancer` creerà un **Internal Load Balancer (ILB)**.
+
+Caratteristiche principali:
+- **IP Privato**: All'ILB viene assegnato un indirizzo IP privato dalla subnet del cluster AKS.
+- **Nessuna Esposizione Pubblica**: Il servizio non è accessibile da Internet, ma solo dall'interno della stessa VNet o da reti connesse (tramite peering, VPN, o ExpressRoute).
+- **Risoluzione DNS**: Per accedere al servizio tramite un nome DNS (invece che con l'IP), è necessario configurare la risoluzione DNS appropriata all'interno della VNet.
+
+**Esempio di Servizio (`internal-lb-service.yaml`):**
+Applicando questo manifest, Kubernetes richiederà un load balancer ad Azure, che risponderà creando un ILB.
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-internal-app-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+  selector:
+    app: my-app # Assicurati che corrisponda al selettore del tuo deployment
+```
+Per ottenere l'IP privato assegnato, puoi usare `kubectl get service my-internal-app-service -o wide`.
 
 ## Come Utilizzare i Servizi Privati da Kubernetes
 
