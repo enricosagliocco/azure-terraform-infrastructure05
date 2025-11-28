@@ -26,7 +26,7 @@ resource "azurerm_route_table" "main" {
   name                          = var.route_table_name
   location                      = azurerm_resource_group.main.location
   resource_group_name           = azurerm_resource_group.main.name
-  disable_bgp_route_propagation = false
+  bgp_route_propagation_enabled = true
   tags                          = var.tags
 }
 

@@ -1,9 +1,9 @@
-output "existing_rg_id" {
-  value = data.azurerm_resource_group.existing_rg.id
+output "resource_group_id" {
+  value = azurerm_resource_group.main.id
 }
 
-output "existing_vnet_id" {
-  value = data.azurerm_virtual_network.existing_vnet.id
+output "vnet_id" {
+  value = azurerm_virtual_network.main.id
 }
 
 output "aks_cluster_id" {
