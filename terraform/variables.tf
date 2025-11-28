@@ -91,6 +91,7 @@ variable "storage_account_name" {
 variable "acr_name" {
   description = "Name for the new Azure Container Registry."
   type        = string
+  default     = "myprivateacr001"
 }
 
 
