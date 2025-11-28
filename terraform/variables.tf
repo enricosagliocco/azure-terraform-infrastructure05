@@ -68,7 +68,7 @@ variable "aks_node_count" {
 variable "aks_vm_size" {
   description = "VM size for the AKS nodes."
   type        = string
-  default     = "Standard_DS2_v2"
+  default     = "Standard_B2s"
 }
 
 variable "aks_max_node_count" {
@@ -87,4 +87,10 @@ variable "storage_account_name" {
   description = "Name of the storage account."
   type        = string
 }
+
+variable "acr_name" {
+  description = "Name for the new Azure Container Registry."
+  type        = string
+}
+
 

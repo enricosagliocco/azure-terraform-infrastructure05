@@ -114,3 +114,62 @@ resource "azurerm_private_endpoint" "storage_pe" {
 
   tags = var.tags
 }
+
+##############################################################################
+# Azure Container Registry (ACR)
+##############################################################################
+resource "azurerm_container_registry" "acr" {
+  name                     = var.acr_name
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  sku                      = "Premium" # Premium SKU is required for private endpoints
+  admin_enabled            = false
+  public_network_access_enabled = false
+
+  tags = var.tags
+}
+
+##############################################################################
+# Private DNS Zone for ACR
+##############################################################################
+resource "azurerm_private_dns_zone" "acr" {
+  name                = "privatelink.azurecr.io"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "acr" {
+  name                  = "${var.acr_name}-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.acr.name
+  virtual_network_id    = azurerm_virtual_network.main.id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
+##############################################################################
+# Private Endpoint for ACR
+##############################################################################
+resource "azurerm_private_endpoint" "acr" {
+  name                = "${var.acr_name}-pe"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = azurerm_subnet.private_endpoints_subnet.id
+
+  private_service_connection {
+    name                           = "${var.acr_name}-psc"
+    private_connection_resource_id = azurerm_container_registry.acr.id
+    is_manual_connection           = false
+    subresource_names              = ["registry"]
+  }
+
+  private_dns_zone_group {
+    name                 = "acr-dns-zone-group"
+    private_dns_zone_ids = [azurerm_private_dns_zone.acr.id]
+  }
+
+  tags = var.tags
+}
+
+
+
