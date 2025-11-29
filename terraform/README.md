@@ -69,16 +69,72 @@ Caratteristiche principali:
 Applicando questo manifest, Kubernetes richiederà un load balancer ad Azure, che risponderà creando un ILB.
 
 ```yaml
+# 1. Prendi il PrincipalId della managed identity del cluster
+PRINCIPAL_ID=$(az aks show --resource-group my-aks-rg --name my-private-aks-cluster --query 'identity.principalId' -o tsv)
+# ← sostituisci <NOME-CLUSTER-AKS> con il nome reale del cluster (es. aks-dih-test o quello che vedi in az aks list)
+
+# 2. Assegna i ruoli necessari (questi sono i due che mancano sempre)
+az role assignment create --assignee "$PRINCIPAL_ID" --role "Network Contributor" --scope "/subscriptions/d4651f01-cb5e-4f98-8bdb-0cd50eaefa87/resourceGroups/my-aks-rg/providers/Microsoft.Network/virtualNetworks/my-aks-vnet/subnets/aks-subnet"
+
+az role assignment create --assignee "$PRINCIPAL_ID" --role "Reader" --resource-group my-aks-rg
+
+# 3. Elimina il Service incasinato e riapplicalo PULITO (senza annotation subnet)
+kubectl delete svc my-internal-app-service --force
+
+# --- ConfigMap (opzionale) ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-index-html
+data:
+  index.html: |
+    <!DOCTYPE html><html><head><title>OK</title></head><body><h1>Nginx + LoadBalancer funziona!</h1></body></html>
+---
+# --- Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  labels:
+    app: my-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: index
+          mountPath: /usr/share/nginx/html/index.html
+          subPath: index.html
+      volumes:
+      - name: index
+        configMap:
+          name: nginx-index-html
+---
 apiVersion: v1
 kind: Service
 metadata:
   name: my-internal-app-service
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"  # Rende il LB interno
 spec:
   type: LoadBalancer
   ports:
   - port: 80
+    targetPort: 80
+    protocol: TCP
   selector:
-    app: my-app # Assicurati che corrisponda al selettore del tuo deployment
+    app: my-app
 ```
 Per ottenere l'IP privato assegnato, puoi usare `kubectl get service my-internal-app-service -o wide`.
 

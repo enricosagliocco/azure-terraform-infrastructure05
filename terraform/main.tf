@@ -43,7 +43,6 @@ resource "azurerm_kubernetes_cluster" "aks" {
     dns_prefix          = var.aks_dns_prefix
 
     private_cluster_enabled = true
-    private_dns_zone_id = "None"
     private_cluster_public_fqdn_enabled = true
 
     default_node_pool {
