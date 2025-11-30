@@ -95,6 +95,26 @@ resource "azurerm_storage_account" "storage" {
   tags = var.tags
 }
 
+# Role assignment per permettere ad AKS di usare il tuo storage account
+resource "azurerm_role_assignment" "aks_storage_contributor" {
+  scope                = azurerm_storage_account.storage.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
+}
+
+resource "azurerm_role_assignment" "aks_storage_account_contributor" {
+  scope                = azurerm_storage_account.storage.id
+  role_definition_name = "Storage Account Contributor"
+  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
+}
+
+# Container per i volumi
+resource "azurerm_storage_container" "pv_data" {
+  name                  = "persistent-volumes"
+  storage_account_name  = azurerm_storage_account.storage.name
+  container_access_type = "private"
+}
+
 ##############################################################################
 # Private Endpoint for Storage Account
 ##############################################################################
