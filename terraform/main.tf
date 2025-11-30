@@ -82,7 +82,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 }
 
 ##############################################################################
-# Storage Account con Network Rules
+# Storage Account - Accesso pubblico temporaneo per Terraform
 ##############################################################################
 resource "azurerm_storage_account" "storage" {
   name                     = var.storage_account_name
@@ -91,32 +91,17 @@ resource "azurerm_storage_account" "storage" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
   
-  # Mantieni l'accesso pubblico abilitato MA con regole restrittive
+  # Permetti accesso pubblico solo per Azure Services (Terraform)
+  # Il traffico da AKS passerà comunque dal Private Endpoint
   public_network_access_enabled = true
   
-  # Regole di rete: blocca tutto tranne VNet e Azure Services
   network_rules {
     default_action = "Deny"
-    
-    # Permetti l'accesso solo dalle subnet AKS
-    virtual_network_subnet_ids = [
-      azurerm_subnet.aks_subnet.id,
-      azurerm_subnet.private_endpoints_subnet.id
-    ]
-    
-    # Permetti Azure Services (include Terraform Cloud, GitHub Actions, Azure Portal)
+    # Permetti solo Azure Services (Terraform Cloud, GitHub Actions)
     bypass = ["AzureServices"]
-    
-    # Opzionale: aggiungi IP specifici se necessario (es. la tua rete aziendale)
-    # ip_rules = ["203.0.113.0/24"]
   }
 
   tags = var.tags
-
-  depends_on = [
-    azurerm_subnet.aks_subnet,
-    azurerm_subnet.private_endpoints_subnet
-  ]
 }
 
 ##############################################################################
@@ -197,30 +182,19 @@ resource "azurerm_private_dns_a_record" "storage_blob" {
 }
 
 ##############################################################################
-# Azure Container Registry (ACR)
+# Azure Container Registry (ACR) - Solo con Private Endpoint
 ##############################################################################
 resource "azurerm_container_registry" "acr" {
-  name                     = var.acr_name
-  resource_group_name      = azurerm_resource_group.main.name
-  location                 = azurerm_resource_group.main.location
-  sku                      = "Premium" # Premium SKU is required for private endpoints
-  admin_enabled            = false
-  
-  # Stessa strategia dello storage: network rules invece di disabilitare tutto
+  name                          = var.acr_name
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = azurerm_resource_group.main.location
+  sku                           = "Premium"
+  admin_enabled                 = false
   public_network_access_enabled = true
   
+  # Network rules semplici: nega tutto pubblico, permetti solo Azure Services
   network_rule_set {
     default_action = "Deny"
-    
-    virtual_network {
-      action    = "Allow"
-      subnet_id = azurerm_subnet.aks_subnet.id
-    }
-    
-    virtual_network {
-      action    = "Allow"
-      subnet_id = azurerm_subnet.private_endpoints_subnet.id
-    }
   }
 
   tags = var.tags
