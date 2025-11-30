@@ -160,9 +160,7 @@ resource "azurerm_private_endpoint" "storage_pe" {
 
   tags = var.tags
 
-  depends_on = [
-    azurerm_storage_container.pv_data
-  ]
+
 }
 
 ##############################################################################
