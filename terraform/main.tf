@@ -97,14 +97,17 @@ resource "azurerm_storage_account" "storage" {
   tags = var.tags
 }
 
-##############################################################################
-# Storage Container (creato quando lo storage è ancora aperto)
-##############################################################################
-resource "azurerm_storage_container" "pv_data" {
-  name                  = "persistent-volumes"
-  storage_account_name  = azurerm_storage_account.storage.name
-  container_access_type = "private"
-}
+# NOTA: Il container "persistent-volumes" deve essere creato manualmente
+# Esegui questi comandi DOPO il terraform apply:
+#
+# az storage account update --name myprivatestoragesa001 \
+#   --resource-group my-aks-rg --default-action Allow
+#
+# az storage container create --name persistent-volumes \
+#   --account-name myprivatestoragesa001 --auth-mode login
+#
+# az storage account update --name myprivatestoragesa001 \
+#   --resource-group my-aks-rg --default-action Deny
 
 ##############################################################################
 # Network Rules (applicate DOPO la creazione del container)
@@ -115,9 +118,10 @@ resource "azurerm_storage_account_network_rules" "storage_rules" {
   default_action = "Deny"
   bypass         = ["AzureServices"]
 
-  depends_on = [
-    azurerm_storage_container.pv_data
-  ]
+  # Rimuovi il depends_on dato che il container è gestito manualmente
+  # depends_on = [
+  #   azurerm_storage_container.pv_data
+  # ]
 }
 
 ##############################################################################

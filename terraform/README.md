@@ -183,6 +183,8 @@ Quando applichi questo manifest, Kubelet sui nodi AKS contatterà l'ACR tramite 
 
 Per usare lo storage a oggetti (blob) all'interno di un pod, si utilizza il driver CSI (Container Storage Interface) di Azure Blob. Questo permette di montare un container di blob come un volume effimero direttamente nel file system del pod.
 
+
+
 **Prerequisiti:**
 
 Il driver CSI per Blob Storage deve essere abilitato sul tuo cluster. Puoi farlo con il seguente comando:
@@ -192,6 +194,25 @@ az aks enable-addons --addons azure-blob-csi-driver --name <aks_cluster_name> --
 ```
 
 ## Esempi di StorageClass, PVC e Pod per Storage Privato in AKS
+
+```sh
+az storage account update \
+  --name myprivatestoragesa001 \
+  --resource-group my-aks-rg \
+  --default-action Allow
+
+# Crea il container
+az storage container create \
+  --name persistent-volumes \
+  --account-name myprivatestoragesa001 \
+  --auth-mode login
+
+# Richiudi lo storage (opzionale, tanto Terraform lo gestisce)
+az storage account update \
+  --name myprivatestoragesa001 \
+  --resource-group my-aks-rg \
+  --default-action Deny
+```
 
 ### StorageClass per Azure Blob Storage (privato)
 
