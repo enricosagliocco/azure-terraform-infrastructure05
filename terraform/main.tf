@@ -82,7 +82,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 }
 
 ##############################################################################
-# Storage Account - Accesso pubblico temporaneo per Terraform
+# Storage Account - Inizialmente SENZA restrizioni
 ##############################################################################
 resource "azurerm_storage_account" "storage" {
   name                     = var.storage_account_name
@@ -91,26 +91,33 @@ resource "azurerm_storage_account" "storage" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
   
-  # Permetti accesso pubblico solo per Azure Services (Terraform)
-  # Il traffico da AKS passerà comunque dal Private Endpoint
+  # IMPORTANTE: Inizialmente aperto, poi bloccheremo con le network_rules
   public_network_access_enabled = true
-  
-  network_rules {
-    default_action = "Deny"
-    # Permetti solo Azure Services (Terraform Cloud, GitHub Actions)
-    bypass = ["AzureServices"]
-  }
 
   tags = var.tags
 }
 
 ##############################################################################
-# Storage Container per Persistent Volumes
+# Storage Container (creato quando lo storage è ancora aperto)
 ##############################################################################
 resource "azurerm_storage_container" "pv_data" {
   name                  = "persistent-volumes"
   storage_account_name  = azurerm_storage_account.storage.name
   container_access_type = "private"
+}
+
+##############################################################################
+# Network Rules (applicate DOPO la creazione del container)
+##############################################################################
+resource "azurerm_storage_account_network_rules" "storage_rules" {
+  storage_account_id = azurerm_storage_account.storage.id
+
+  default_action = "Deny"
+  bypass         = ["AzureServices"]
+
+  depends_on = [
+    azurerm_storage_container.pv_data
+  ]
 }
 
 ##############################################################################
@@ -202,12 +209,16 @@ resource "azurerm_container_registry" "acr" {
 
 ##############################################################################
 # Role Assignment per AKS -> ACR
+# NOTA: Questo role assignment esiste già, quindi è commentato
+# Se necessario ricrearlo: decommentare o eseguire manualmente:
+# az role assignment create --assignee <kubelet-identity-id> \
+#   --role "AcrPull" --scope <acr-id>
 ##############################################################################
-resource "azurerm_role_assignment" "aks_acr_pull" {
-  scope                = azurerm_container_registry.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-}
+# resource "azurerm_role_assignment" "aks_acr_pull" {
+#   scope                = azurerm_container_registry.acr.id
+#   role_definition_name = "AcrPull"
+#   principal_id         = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+# }
 
 ##############################################################################
 # Private DNS Zone for ACR
