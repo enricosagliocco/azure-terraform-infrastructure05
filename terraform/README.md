@@ -1,6 +1,7 @@
+
 # Architettura AKS Privato con Servizi Privati
 
-Questo progetto Terraform implementa un'architettura Azure sicura che include un cluster Azure Kubernetes Service (AKS) completamente privato, un Azure Container Registry (ACR) privato e uno Storage Account privato. Tutte le comunicazioni tra i servizi avvengono sulla rete virtuale di Azure, senza esposizione a Internet.
+Questo progetto Terraform implementa un'architettura Azure sicura che include un cluster **Azure Kubernetes Service (AKS)** completamente privato, un **Azure Container Registry (ACR)** privato e uno **Storage Account** privato. Tutte le comunicazioni tra i servizi avvengono sulla rete virtuale di Azure, senza esposizione a Internet.
 
 ## Diagramma dell'Architettura (Mermaid)
 
@@ -13,24 +14,20 @@ graph TD
                     PE_ACR["Private Endpoint (ACR)"];
                     PE_Storage["Private Endpoint (Storage)"];
                 end
-
                 subgraph "Subnet AKS"
                     AKS[("AKS Cluster")];
                 end
             end
-
             subgraph "Servizi PaaS"
                 ACR["Azure Container Registry"];
                 Storage["Azure Storage Account"];
             end
         end
     end
-
     AKS -- "Pull Immagine" --> PE_ACR;
     AKS -- "Monta Volume" --> PE_Storage;
     PE_ACR -- "Link Privato" --> ACR;
     PE_Storage -- "Link Privato" --> Storage;
-
     style AKS fill:#326ce5,stroke:#fff,stroke-width:2px,color:#fff
     style ACR fill:#f6a821,stroke:#fff,stroke-width:2px,color:#fff
     style Storage fill:#f6a821,stroke:#fff,stroke-width:2px,color:#fff
@@ -60,12 +57,14 @@ L'infrastruttura creata da questa configurazione è composta dai seguenti elemen
 
 Dato che il cluster è configurato come privato (`private_cluster_enabled = true`) e utilizza lo SKU `standard` per il load balancer (`load_balancer_sku = "standard"`), qualsiasi servizio Kubernetes di tipo `LoadBalancer` creerà un **Internal Load Balancer (ILB)**.
 
-Caratteristiche principali:
+**Caratteristiche principali:**
+
 - **IP Privato**: All'ILB viene assegnato un indirizzo IP privato dalla subnet del cluster AKS.
 - **Nessuna Esposizione Pubblica**: Il servizio non è accessibile da Internet, ma solo dall'interno della stessa VNet o da reti connesse (tramite peering, VPN, o ExpressRoute).
 - **Risoluzione DNS**: Per accedere al servizio tramite un nome DNS (invece che con l'IP), è necessario configurare la risoluzione DNS appropriata all'interno della VNet.
 
-**Esempio di Servizio (`internal-lb-service.yaml`):**
+### Esempio di Servizio (`internal-lb-service.yaml`)
+
 Applicando questo manifest, Kubernetes richiederà un load balancer ad Azure, che risponderà creando un ILB.
 
 ```yaml
@@ -136,7 +135,12 @@ spec:
   selector:
     app: my-app
 ```
-Per ottenere l'IP privato assegnato, puoi usare `kubectl get service my-internal-app-service -o wide`.
+
+Per ottenere l'IP privato assegnato, puoi usare:
+
+```sh
+kubectl get service my-internal-app-service -o wide
+```
 
 ## Come Utilizzare i Servizi Privati da Kubernetes
 
@@ -147,15 +151,17 @@ Poiché sia il cluster AKS che i servizi (ACR e Storage) sono collegati alla ste
 Per permettere al cluster AKS di scaricare immagini dal tuo ACR privato in modo sicuro, è necessario associare l'ACR al cluster. Questo concede all'identità gestita di AKS i permessi necessari (`AcrPull`) sul registry.
 
 **Comando di Associazione (da eseguire una tantum):**
+
 Sostituisci i valori tra parentesi con i nomi delle tue risorse (puoi prenderli dagli output di Terraform).
 
-```bash
+```sh
 az aks update --name <aks_cluster_name> --resource-group <resource_group_name> --attach-acr <acr_name>
 ```
 
 Una volta eseguito questo comando, puoi fare riferimento alle immagini nel tuo ACR direttamente nei manifest dei tuoi pod, come in questo esempio:
 
 **Esempio Pod (`pod-acr-example.yaml`):**
+
 Assicurati di sostituire `<acr_login_server>` con il `login_server` del tuo ACR (disponibile negli output di Terraform).
 
 ```yaml
@@ -178,42 +184,101 @@ Quando applichi questo manifest, Kubelet sui nodi AKS contatterà l'ACR tramite 
 Per usare lo storage a oggetti (blob) all'interno di un pod, si utilizza il driver CSI (Container Storage Interface) di Azure Blob. Questo permette di montare un container di blob come un volume effimero direttamente nel file system del pod.
 
 **Prerequisiti:**
+
 Il driver CSI per Blob Storage deve essere abilitato sul tuo cluster. Puoi farlo con il seguente comando:
-```bash
+
+```sh
 az aks enable-addons --addons azure-blob-csi-driver --name <aks_cluster_name> --resource-group <resource_group_name>
 ```
 
-**Esempio Pod (`pod-storage-example.yaml`):**
-Questo manifest mostra come montare un container di blob chiamato `my-data-container` in un pod. Il pod potrà leggere e scrivere file in `/mnt/data` come se fosse una cartella locale.
+## Esempi di StorageClass, PVC e Pod per Storage Privato in AKS
+
+### StorageClass per Azure Blob Storage (privato)
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: private-blob-storage
+provisioner: blob.csi.azure.com
+parameters:
+  storageAccount: myprivatestorageesa001  # Il tuo storage account
+  containerName: persistent-volumes
+  # Usa l'identità managed di AKS
+  useDataPlaneAPI: "true"
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+```
+
+### StorageClass per Azure Disk (privato)
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: private-disk-storage
+provisioner: disk.csi.azure.com
+parameters:
+  storageaccounttype: Premium_LRS
+  kind: Managed
+  # Forza l'uso del tuo resource group
+  resourceGroup: my-aks-rg  
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+```
+
+### PersistentVolumeClaim di esempio
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-private-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: private-blob-storage  # Usa la tua StorageClass!
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+### Pod di esempio con volume montato
 
 ```yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: my-blob-pod
+  name: my-app
 spec:
   containers:
-  - name: my-container
-    image: mcr.microsoft.com/cbl-mariner/base/core:2.0
-    command:
-      - "sleep"
-      - "3600"
+  - name: app
+    image: nginx
     volumeMounts:
-      - name: blob-volume
-        mountPath: /mnt/data
+    - name: data
+      mountPath: /data
   volumes:
-  - name: blob-volume
-    csi:
-      driver: blob.csi.azure.com
-      volumeAttributes:
-        # Sostituisci con il nome del tuo storage account e del container
-        storageAccount: <storage_account_name>
-        containerName: my-data-container
-        # Se usi un segreto per l'autenticazione (consigliato)
-        # secretName: azure-storage-secret
-        # Se usi l'identità del pod (ancora più sicuro)
-        # msiendpoint: "..."
+  - name: data
+    persistentVolumeClaim:
+      claimName: my-private-pvc
 ```
 
-**Autenticazione:**
-Il pod ha bisogno delle credenziali per accedere allo storage. L'approccio più sicuro è usare l'**identità del pod (Pod Identity)**, che associa un'identità gestita di Azure a un pod Kubernetes. In alternativa, puoi creare un segreto Kubernetes contenente la connection string o la chiave di accesso dello storage account. Poiché il pod e lo storage sono sulla stessa VNet, il traffico avverrà tramite il private endpoint.
+### Comandi utili per gestire le StorageClass
+
+Rimuovi il default dalla StorageClass di AKS:
+
+```sh
+kubectl patch storageclass default -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+```
+
+Imposta la tua StorageClass come default:
+
+```sh
+kubectl patch storageclass private-blob-storage -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+```
+
+---
+
+Questa sezione mostra come definire StorageClass private per Blob e Disk, creare un PVC e montarlo su un Pod, oltre ai comandi per gestire la StorageClass di default in AKS.

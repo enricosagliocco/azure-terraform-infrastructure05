@@ -82,7 +82,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
 }
 
 ##############################################################################
-# Storage Account
+# Storage Account con Network Rules
 ##############################################################################
 resource "azurerm_storage_account" "storage" {
   name                     = var.storage_account_name
@@ -90,25 +90,38 @@ resource "azurerm_storage_account" "storage" {
   location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
-  public_network_access_enabled = false
+  
+  # Mantieni l'accesso pubblico abilitato MA con regole restrittive
+  public_network_access_enabled = true
+  
+  # Regole di rete: blocca tutto tranne VNet e Azure Services
+  network_rules {
+    default_action = "Deny"
+    
+    # Permetti l'accesso solo dalle subnet AKS
+    virtual_network_subnet_ids = [
+      azurerm_subnet.aks_subnet.id,
+      azurerm_subnet.private_endpoints_subnet.id
+    ]
+    
+    # Permetti Azure Services (include Terraform Cloud, GitHub Actions, Azure Portal)
+    bypass = ["AzureServices"]
+    
+    # Opzionale: aggiungi IP specifici se necessario (es. la tua rete aziendale)
+    # ip_rules = ["203.0.113.0/24"]
+  }
 
   tags = var.tags
+
+  depends_on = [
+    azurerm_subnet.aks_subnet,
+    azurerm_subnet.private_endpoints_subnet
+  ]
 }
 
-# Role assignment per permettere ad AKS di usare il tuo storage account
-resource "azurerm_role_assignment" "aks_storage_contributor" {
-  scope                = azurerm_storage_account.storage.id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
-}
-
-resource "azurerm_role_assignment" "aks_storage_account_contributor" {
-  scope                = azurerm_storage_account.storage.id
-  role_definition_name = "Storage Account Contributor"
-  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
-}
-
-# Container per i volumi
+##############################################################################
+# Storage Container per Persistent Volumes
+##############################################################################
 resource "azurerm_storage_container" "pv_data" {
   name                  = "persistent-volumes"
   storage_account_name  = azurerm_storage_account.storage.name
@@ -116,7 +129,25 @@ resource "azurerm_storage_container" "pv_data" {
 }
 
 ##############################################################################
-# Private Endpoint for Storage Account
+# Role Assignments per AKS Identity
+##############################################################################
+
+# Permetti ad AKS di leggere/scrivere blob
+resource "azurerm_role_assignment" "aks_storage_blob_contributor" {
+  scope                = azurerm_storage_account.storage.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
+}
+
+# Permetti ad AKS di gestire lo storage account
+resource "azurerm_role_assignment" "aks_storage_account_contributor" {
+  scope                = azurerm_storage_account.storage.id
+  role_definition_name = "Storage Account Contributor"
+  principal_id         = azurerm_kubernetes_cluster.aks.identity[0].principal_id
+}
+
+##############################################################################
+# Private Endpoint per Storage Account
 ##############################################################################
 resource "azurerm_private_endpoint" "storage_pe" {
   name                = "${var.storage_account_name}-pe"
@@ -132,6 +163,37 @@ resource "azurerm_private_endpoint" "storage_pe" {
   }
 
   tags = var.tags
+
+  depends_on = [
+    azurerm_storage_container.pv_data
+  ]
+}
+
+##############################################################################
+# Private DNS Zone per Storage Account
+##############################################################################
+resource "azurerm_private_dns_zone" "storage_blob" {
+  name                = "privatelink.blob.core.windows.net"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = var.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "storage_blob" {
+  name                  = "${var.storage_account_name}-blob-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.storage_blob.name
+  virtual_network_id    = azurerm_virtual_network.main.id
+  registration_enabled  = false
+  tags                  = var.tags
+}
+
+resource "azurerm_private_dns_a_record" "storage_blob" {
+  name                = azurerm_storage_account.storage.name
+  zone_name           = azurerm_private_dns_zone.storage_blob.name
+  resource_group_name = azurerm_resource_group.main.name
+  ttl                 = 300
+  records             = [azurerm_private_endpoint.storage_pe.private_service_connection[0].private_ip_address]
+  tags                = var.tags
 }
 
 ##############################################################################
@@ -143,9 +205,34 @@ resource "azurerm_container_registry" "acr" {
   location                 = azurerm_resource_group.main.location
   sku                      = "Premium" # Premium SKU is required for private endpoints
   admin_enabled            = false
-  public_network_access_enabled = false
+  
+  # Stessa strategia dello storage: network rules invece di disabilitare tutto
+  public_network_access_enabled = true
+  
+  network_rule_set {
+    default_action = "Deny"
+    
+    virtual_network {
+      action    = "Allow"
+      subnet_id = azurerm_subnet.aks_subnet.id
+    }
+    
+    virtual_network {
+      action    = "Allow"
+      subnet_id = azurerm_subnet.private_endpoints_subnet.id
+    }
+  }
 
   tags = var.tags
+}
+
+##############################################################################
+# Role Assignment per AKS -> ACR
+##############################################################################
+resource "azurerm_role_assignment" "aks_acr_pull" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
 }
 
 ##############################################################################
@@ -190,5 +277,41 @@ resource "azurerm_private_endpoint" "acr" {
   tags = var.tags
 }
 
+##############################################################################
+# Outputs
+##############################################################################
 
+output "aks_cluster_name" {
+  value       = azurerm_kubernetes_cluster.aks.name
+  description = "Nome del cluster AKS"
+}
 
+output "aks_identity_principal_id" {
+  value       = azurerm_kubernetes_cluster.aks.identity[0].principal_id
+  description = "Principal ID dell'identità managed di AKS"
+}
+
+output "storage_account_name" {
+  value       = azurerm_storage_account.storage.name
+  description = "Nome dello storage account privato"
+}
+
+output "storage_account_primary_blob_endpoint" {
+  value       = azurerm_storage_account.storage.primary_blob_endpoint
+  description = "Endpoint blob dello storage account"
+}
+
+output "acr_login_server" {
+  value       = azurerm_container_registry.acr.login_server
+  description = "Login server dell'ACR"
+}
+
+output "private_endpoint_storage_ip" {
+  value       = azurerm_private_endpoint.storage_pe.private_service_connection[0].private_ip_address
+  description = "IP privato del private endpoint dello storage"
+}
+
+output "private_endpoint_acr_ip" {
+  value       = azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address
+  description = "IP privato del private endpoint dell'ACR"
+}
