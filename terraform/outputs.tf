@@ -38,3 +38,24 @@ output "acr_login_server" {
   value = azurerm_container_registry.acr.login_server
 }
 
+# Aggiungi al tuo outputs.tf esistente
+
+output "storage_container_name" {
+  value       = azurerm_storage_container.pv_data.name
+  description = "Nome del container per persistent volumes"
+}
+
+output "private_endpoint_storage_ip" {
+  value       = azurerm_private_endpoint.storage_pe.private_service_connection[0].private_ip_address
+  description = "IP privato del private endpoint dello storage"
+}
+
+output "private_endpoint_acr_ip" {
+  value       = azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address
+  description = "IP privato del private endpoint dell'ACR"
+}
+
+output "aks_kubelet_identity" {
+  value       = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+  description = "Object ID della kubelet identity (per ACR pull)"
+}
